@@ -1,14 +1,14 @@
 [project]
-name = "app"
+name = "influencer-search-app"
 version = "0.1.0"
-description = ""
+description = "AI-powered influencer discovery tool with semantic search capabilities for text and image data"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
-dependencies = [ "python-dotenv>=1.0.0,<2.0.0", "pydantic<2.10", "aiostream>=0.5.2,<0.6.0", "llama-index-core>=0.12.28,<0.13.0", "llama-index-server>=0.1.17,<0.2.0", "docx2txt>=0.8,<0.9", "llama-index-llms-openai>=0.3.2,<0.4.0", "llama-index-embeddings-openai>=0.3.1,<0.4.0" ]
+dependencies = [ "python-dotenv>=1.0.0,<2.0.0", "pydantic<2.10", "aiostream>=0.5.2,<0.6.0", "llama-index-core>=0.12.28,<0.13.0", "llama-index-server>=0.1.17,<0.2.0", "docx2txt>=0.8,<0.9", "llama-index-llms-openai>=0.3.2,<0.4.0", "llama-index-embeddings-openai>=0.3.1,<0.4.0", "llama-index-embeddings-clip" ]
 
 [[project.authors]]
-name = "Marcus Schiesser"
-email = "mail@marcusschiesser.de"
+name = "Influencer Discovery Team"
+email = "team@influencerdiscovery.ai"
 
 [project.optional-dependencies]
 dev = [ "mypy>=1.8.0,<2.0.0", "pytest>=8.3.5,<9.0.0", "pytest-asyncio>=0.25.3,<0.26.0" ]
@@ -16,7 +16,7 @@ dev = [ "mypy>=1.8.0,<2.0.0", "pytest>=8.3.5,<9.0.0", "pytest-asyncio>=0.25.3,<0
 [project.scripts]
 generate = "generate:generate_index"
 generate_index = "generate:generate_index"
-generate_ui = "generate:generate_ui_for_workflow"
+generate_embeddings = "generate:generate_embeddings"
 
 [tool]
 [tool.mypy]

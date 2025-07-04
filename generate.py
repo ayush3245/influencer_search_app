@@ -9,7 +9,7 @@ logger = logging.getLogger()
 
 def generate_index():
     """
-    Index the documents in the data directory.
+    Index the documents in the data directory for influencer search.
     """
     from app.index import STORAGE_DIR
     from app.settings import init_settings
@@ -21,7 +21,7 @@ def generate_index():
     load_dotenv()
     init_settings()
 
-    logger.info("Creating new index")
+    logger.info("Creating new influencer search index")
     # load the documents and create the index
     reader = SimpleDirectoryReader(
         os.environ.get("DATA_DIR", "data"),
@@ -34,35 +34,17 @@ def generate_index():
     )
     # store it for later
     index.storage_context.persist(STORAGE_DIR)
-    logger.info(f"Finished creating new index. Stored in {STORAGE_DIR}")
+    logger.info(f"Finished creating influencer search index. Stored in {STORAGE_DIR}")
 
 
-def generate_ui_for_workflow():
+def generate_embeddings():
     """
-    Generate UI for UIEventData event in app/workflow.py
+    Generate embeddings for influencer data using CLIP model.
+    This function will be expanded to handle multimodal data.
     """
-    import asyncio
-
-    from app.settings import init_settings
-    from llama_index.core.settings import Settings
-    from main import COMPONENT_DIR
-
     load_dotenv()
-    init_settings()
-
-    # To generate UI components for additional event types,
-    # import the corresponding data model (e.g., MyCustomEventData)
-    # and run the generate_ui_for_workflow function with the imported model.
-    # Make sure the output filename of the generated UI component matches the event type (here `ui_event`)
-    try:
-        from app.workflow import UIEventData  # type: ignore
-    except ImportError:
-        raise ImportError("Couldn't generate UI component for the current workflow.")
-    from llama_index.server.gen_ui import generate_event_component
-
-    # works well with OpenAI gpt-4.1, Claude 3.7 Sonnet or Gemini Pro 2.5
-    code = asyncio.run(
-        generate_event_component(event_cls=UIEventData, llm=Settings.llm)
-    )
-    with open(f"{COMPONENT_DIR}/ui_event.jsx", "w") as f:
-        f.write(code)
+    
+    logger.info("Generating embeddings for influencer data...")
+    # TODO: Implement CLIP-based embedding generation for text and images
+    # This will be implemented in Phase 3
+    logger.info("Embedding generation placeholder - to be implemented in Phase 3")

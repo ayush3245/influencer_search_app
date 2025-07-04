@@ -1,4 +1,13 @@
-This is a [LlamaIndex](https://www.llamaindex.ai/) simple agentic RAG project using [Agent Workflows](https://docs.llamaindex.ai/en/stable/examples/agent/agent_workflow_basic/).
+# Influencer Discovery Tool
+
+An AI-powered influencer discovery application that enables semantic search across influencer data using multimodal embeddings. Built with [LlamaIndex](https://www.llamaindex.ai/) and CLIP for text and image understanding.
+
+## Features
+
+- **Semantic Search**: Find influencers using natural language queries like "find female influencer with curly hair"
+- **Multimodal Understanding**: Search across text (bios, descriptions) and images (profile photos, content thumbnails)
+- **Fast Retrieval**: Efficient embedding-based search for quick results
+- **Extensible Data Sources**: Support for PostgreSQL, CSV, and Excel data formats
 
 ## Getting Started
 
@@ -10,10 +19,11 @@ First, setup the environment with uv:
 uv sync
 ```
 
-Then check the parameters that have been pre-configured in the `.env` file in this directory.
-Make sure you have set the `OPENAI_API_KEY` for the LLM.
+Then configure your environment variables in the `.env` file:
+- Set your `OPENAI_API_KEY` if using any LLM functionality
+- Configure data directories and search parameters
 
-Second, generate the embeddings of the documents in the `./data` directory:
+Second, prepare your influencer data in the `./data` directory and generate embeddings:
 
 ```shell
 uv run generate
@@ -25,7 +35,7 @@ Third, run the development server:
 uv run fastapi dev
 ```
 
-Then open [http://localhost:8000](http://localhost:8000) with your browser to start the chat UI.
+Then open [http://localhost:8000](http://localhost:8000) with your browser to start the influencer search interface.
 
 To start the app optimized for **production**, run:
 
@@ -33,27 +43,41 @@ To start the app optimized for **production**, run:
 uv run fastapi run
 ```
 
-## Configure LLM and Embedding Model
+## Configuration
 
-You can configure [LLM model](https://docs.llamaindex.ai/en/stable/module_guides/models/llms) and [embedding model](https://docs.llamaindex.ai/en/stable/module_guides/models/embeddings) in [settings.py](app/settings.py).
+You can configure embedding models and search parameters in [settings.py](app/settings.py). The application uses CLIP embeddings for multimodal search capabilities.
 
 ## Use Case
 
-We have prepared an [example workflow](./app/workflow.py) for the agentic RAG use case, where you can ask questions about the example documents in the [./data](./data) directory.
+This tool is designed for influencer marketing agencies to efficiently discover and match influencers based on various criteria:
 
-You can start by sending an request on the [chat UI](http://localhost:8000) or you can test the `/api/chat` endpoint with the following curl request:
+- **Visual characteristics**: Hair color, style, appearance
+- **Content type**: Beauty, fitness, lifestyle, etc.
+- **Demographics**: Age range, location, audience
+- **Engagement metrics**: Follower count, engagement rate
 
-```
+Example search queries:
+- "Find fitness influencers with high engagement"
+- "Female beauty influencers with curly hair"
+- "Lifestyle content creators aged 25-35"
+
+You can test the search functionality through the web interface or API endpoint:
+
+```bash
 curl --location 'localhost:8000/api/chat' \
 --header 'Content-Type: application/json' \
---data '{ "messages": [{ "role": "user", "content": "What standards for a letter exist?" }] }'
+--data '{ "messages": [{ "role": "user", "content": "Find female influencers with curly hair who create beauty content" }] }'
 ```
+
+## Data Format
+
+The application expects influencer data with the following structure:
+- **Text fields**: Name, bio, content description, demographics
+- **Image fields**: Profile photo URLs, content thumbnail URLs
+- **Metadata**: Follower count, engagement rate, platform information
 
 ## Learn More
 
-To learn more about LlamaIndex, take a look at the following resources:
-
-- [LlamaIndex Documentation](https://docs.llamaindex.ai) - learn about LlamaIndex.
-- [Workflows Introduction](https://docs.llamaindex.ai/en/stable/understanding/workflows/) - learn about LlamaIndex workflows.
-
-You can check out [the LlamaIndex GitHub repository](https://github.com/run-llama/llama_index) - your feedback and contributions are welcome!
+- [LlamaIndex Documentation](https://docs.llamaindex.ai) - Learn about the underlying framework
+- [CLIP Model](https://openai.com/research/clip) - Understand the multimodal embedding approach
+- [Semantic Search Guide](https://docs.llamaindex.ai/en/stable/understanding/embeddings/) - Learn about embedding-based search

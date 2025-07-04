@@ -22,7 +22,10 @@ def create_workflow(chat_request: Optional[ChatRequest] = None) -> AgentWorkflow
 
     # Define the system prompt for the agent
     # Append the citation system prompt to the system prompt
-    system_prompt = """You are a helpful assistant"""
+    system_prompt = """You are an AI assistant specialized in influencer discovery and search. 
+    You help users find influencers based on various criteria including appearance, content style, 
+    demographics, and engagement metrics. You can search through influencer profiles, bios, 
+    content descriptions, and visual characteristics to provide relevant matches."""
     system_prompt += CITATION_SYSTEM_PROMPT
 
     return AgentWorkflow.from_tools_or_functions(

@@ -7,7 +7,7 @@ export default function Header() {
     <div className="flex items-center justify-between p-2 px-4">
       <div className="flex items-center gap-2">
         <Sparkles className="size-4" />
-        <h1 className="font-semibold">LlamaIndex App</h1>
+        <h1 className="font-semibold">Influencer Discovery Tool</h1>
       </div>
       <div className="flex items-center justify-end gap-4">
         <div className="flex items-center gap-2">
@@ -17,12 +17,12 @@ export default function Header() {
             rel="noopener noreferrer"
             className="text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
           >
-            Built by LlamaIndex
+            Powered by LlamaIndex
           </a>
           <img
             className="h-[24px] w-[24px] rounded-sm"
             src="/llama.png"
-            alt="Llama Logo"
+            alt="LlamaIndex Logo"
           />
         </div>
         <a
