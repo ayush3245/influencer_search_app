@@ -185,7 +185,11 @@ class InfluencerDataLoader:
         self.loaded_data = []
         self.validation_errors = []
         
-        # Check required columns
+        # Check if this is the new Instagram CSV format
+        if 'Handle' in df.columns and 'Full_Name' in df.columns:
+            return self._process_instagram_dataframe(df, source)
+        
+        # Original format check
         required_columns = [
             'influencer_id', 'name', 'bio', 'category', 
             'follower_count', 'profile_photo_url', 'content_thumbnail_url'
@@ -202,35 +206,130 @@ class InfluencerDataLoader:
         # Process each row
         for index, row in df.iterrows():
             try:
-                # Convert row to dict and clean NaN values
-                row_dict = row.to_dict()
-                row_dict = {k: v for k, v in row_dict.items() if pd.notna(v)}
+                # Create InfluencerData object
+                influencer_data = InfluencerData(
+                    influencer_id=str(row['influencer_id']),
+                    name=str(row['name']),
+                    bio=str(row['bio']),
+                    category=str(row['category']).lower(),
+                    follower_count=int(row['follower_count']),
+                    profile_photo_url=str(row['profile_photo_url']),
+                    content_thumbnail_url=str(row['content_thumbnail_url'])
+                )
                 
-                # Validate and create InfluencerData object
-                influencer = InfluencerData(**row_dict)
-                self.loaded_data.append(influencer)
+                self.loaded_data.append(influencer_data)
                 
             except ValidationError as e:
-                error_info = {
-                    'row_index': index,
-                    'source': source,
+                self.validation_errors.append({
+                    'row': index,
                     'data': row.to_dict(),
-                    'errors': e.errors()
-                }
-                self.validation_errors.append(error_info)
-                logger.warning(f"Validation error at row {index}: {e}")
-            
+                    'errors': e.errors(),
+                    'source': source
+                })
+                logger.warning(f"Validation error for row {index}: {e}")
             except Exception as e:
-                error_info = {
-                    'row_index': index,
-                    'source': source,
+                self.validation_errors.append({
+                    'row': index,
                     'data': row.to_dict(),
-                    'errors': [{'msg': str(e), 'type': 'unknown_error'}]
-                }
-                self.validation_errors.append(error_info)
-                logger.error(f"Unexpected error at row {index}: {e}")
+                    'errors': [{'msg': str(e)}],
+                    'source': source
+                })
+                logger.error(f"Unexpected error processing row {index}: {e}")
         
-        logger.info(f"Successfully loaded {len(self.loaded_data)} influencers from {source}")
+        logger.info(f"Successfully processed {len(self.loaded_data)} influencers from {source}")
+        if self.validation_errors:
+            logger.warning(f"Found {len(self.validation_errors)} validation errors")
+        
+        return self.loaded_data
+
+    def _process_instagram_dataframe(self, df: pd.DataFrame, source: str) -> List[InfluencerData]:
+        """
+        Process the Instagram CSV format DataFrame.
+        
+        Args:
+            df: DataFrame containing Instagram influencer data
+            source: Source identifier for logging
+            
+        Returns:
+            List of validated InfluencerData objects
+        """
+        self.loaded_data = []
+        self.validation_errors = []
+        
+        # Category mapping for normalization
+        category_mapping = {
+            'gaming': 'gaming',
+            'lifestyle': 'lifestyle', 
+            'tech': 'tech',
+            'fitness': 'fitness',
+            'food': 'food',
+            'beauty': 'beauty',
+            'fashion': 'fashion',
+            'travel': 'travel',
+            'wellness': 'wellness'
+        }
+        
+        # Validate image URLs if requested
+        if self.validate_images:
+            profile_urls = df['Profile_Photo_URL'].tolist()
+            content_urls = df['Latest_Post_Thumbnail'].tolist()
+            all_urls = profile_urls + content_urls
+            validation_results = self.image_validator.batch_validate(all_urls)
+            logger.info(f"Image validation completed for {len(all_urls)} URLs")
+        
+        # Process each row
+        for index, row in df.iterrows():
+            try:
+                # Normalize category
+                category = str(row['Category']).lower().strip()
+                normalized_category = category_mapping.get(category, category)
+                
+                # Handle boolean fields
+                is_verified = row.get('Is_Verified', False)
+                if isinstance(is_verified, str):
+                    is_verified = is_verified.lower() in ['true', '1', 'yes']
+                
+                is_private = row.get('Is_Private', False)
+                if isinstance(is_private, str):
+                    is_private = is_private.lower() in ['true', '1', 'yes']
+                
+                # Create InfluencerData object
+                influencer_data = InfluencerData(
+                    influencer_id=str(row['Handle']),
+                    username=str(row['Username']) if pd.notna(row.get('Username')) else None,
+                    name=str(row['Full_Name']),
+                    bio=str(row['Bio']),
+                    category=normalized_category,
+                    follower_count=int(row['Follower_Count']),
+                    following_count=int(row['Following_Count']) if pd.notna(row.get('Following_Count')) else None,
+                    post_count=int(row['Post_Count']) if pd.notna(row.get('Post_Count')) else None,
+                    profile_photo_url=str(row['Profile_Photo_URL']),
+                    content_thumbnail_url=str(row['Latest_Post_Thumbnail']),
+                    instagram_url=str(row['Instagram_URL']) if pd.notna(row.get('Instagram_URL')) else None,
+                    is_verified=is_verified,
+                    is_private=is_private
+                )
+                
+                self.loaded_data.append(influencer_data)
+                
+            except ValidationError as e:
+                self.validation_errors.append({
+                    'row': index,
+                    'data': row.to_dict(),
+                    'errors': e.errors(),
+                    'source': source
+                })
+                logger.warning(f"Validation error for row {index}: {e}")
+            except Exception as e:
+                self.validation_errors.append({
+                    'row': index,
+                    'data': row.to_dict(),
+                    'errors': [{'msg': str(e)}],
+                    'source': source
+                })
+                logger.error(f"Unexpected error processing row {index}: {e}")
+        
+        logger.info(f"Successfully processed {len(self.loaded_data)} influencers from Instagram CSV")
         if self.validation_errors:
             logger.warning(f"Found {len(self.validation_errors)} validation errors")
         

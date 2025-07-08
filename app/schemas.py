@@ -27,12 +27,18 @@ class InfluencerData(BaseModel):
     """Model for influencer data validation."""
     
     influencer_id: str = Field(..., description="Unique identifier for the influencer")
-    name: str = Field(..., min_length=1, max_length=100, description="Influencer's name")
-    bio: str = Field(..., min_length=10, max_length=500, description="Influencer's bio/description")
+    username: Optional[str] = Field(None, description="Username without @ symbol")
+    name: str = Field(..., min_length=1, max_length=100, description="Influencer's full name")
+    bio: str = Field(..., min_length=1, max_length=1000, description="Influencer's bio/description")
     category: InfluencerCategory = Field(..., description="Primary content category")
-    follower_count: int = Field(..., ge=0, le=10_000_000, description="Number of followers")
+    follower_count: int = Field(..., ge=0, le=100_000_000, description="Number of followers")
+    following_count: Optional[int] = Field(None, ge=0, description="Number of accounts following")
+    post_count: Optional[int] = Field(None, ge=0, description="Number of posts")
     profile_photo_url: HttpUrl = Field(..., description="URL to profile photo")
     content_thumbnail_url: HttpUrl = Field(..., description="URL to content thumbnail")
+    instagram_url: Optional[HttpUrl] = Field(None, description="Instagram profile URL")
+    is_verified: Optional[bool] = Field(False, description="Whether the account is verified")
+    is_private: Optional[bool] = Field(False, description="Whether the account is private")
     
     @validator('name')
     def validate_name(cls, v):
@@ -53,13 +59,19 @@ class InfluencerData(BaseModel):
         use_enum_values = True
         json_schema_extra = {
             "example": {
-                "influencer_id": "INF001",
-                "name": "Emma Rodriguez",
-                "bio": "Fitness enthusiast 💪 | Personal trainer | Healthy lifestyle advocate | Curly hair, don't care! 🌿",
-                "category": "fitness",
-                "follower_count": 125000,
+                "influencer_id": "@pewdiepie",
+                "username": "pewdiepie",
+                "name": "PewDiePie",
+                "bio": "Gamer;Subscribe to my newsletter with @itsmarziapie",
+                "category": "gaming",
+                "follower_count": 20400000,
+                "following_count": 1,
+                "post_count": 788,
                 "profile_photo_url": "https://images.unsplash.com/photo-1594736797933-d0200b5d2c84",
-                "content_thumbnail_url": "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b"
+                "content_thumbnail_url": "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b",
+                "instagram_url": "https://www.instagram.com/pewdiepie/",
+                "is_verified": True,
+                "is_private": False
             }
         }
 

@@ -396,6 +396,8 @@ class VectorStore:
 
 # Global vector store instance
 vector_store = VectorStore()
+# Automatically load existing data if available
+vector_store.load()
 
 
 if __name__ == "__main__":

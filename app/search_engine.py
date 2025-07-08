@@ -135,7 +135,6 @@ class InfluencerSearchEngine:
             categories: Filter by categories
             min_followers: Minimum follower count
             max_followers: Maximum follower count
-            similarity_threshold: Minimum similarity score
             
         Returns:
             List of search results
@@ -212,7 +211,7 @@ class InfluencerSearchEngine:
         
         # Filter out the reference influencer if requested
         if exclude_self:
-            results = [r for r in results if r.influencer_id != influencer_id]
+            results = [r for r in results if r.influencer.influencer_id != influencer_id]
             results = results[:limit]
         
         return results
@@ -260,7 +259,7 @@ class InfluencerSearchEngine:
             all_influencers.append(result)
         
         # Sort by score and return top results
-        all_influencers.sort(key=lambda x: x.score, reverse=True)
+        all_influencers.sort(key=lambda x: x.similarity_score, reverse=True)
         return all_influencers[:request.limit]
     
     def _rank_results(self, results: List[SearchResult], request: SearchRequest) -> List[SearchResult]:
@@ -277,13 +276,61 @@ class InfluencerSearchEngine:
         if not results:
             return results
         
-        # Add ranking metadata to match_reasons
-        for i, result in enumerate(results):
-            rank_info = f"Rank: {i + 1}/{len(results)}"
-            if rank_info not in result.match_reasons:
-                result.match_reasons.append(rank_info)
+        # Enhanced ranking with category boost
+        enhanced_results = []
+        query_lower = request.query.lower() if request.query else ""
         
-        return results
+        # Define category boost factor
+        CATEGORY_BOOST = 0.15  # Add 15% boost for category matches
+        
+        for i, result in enumerate(results):
+            enhanced_result = result
+            original_score = result.similarity_score
+            boosted_score = original_score
+            boost_reasons = []
+            
+            # Category Boost Logic
+            if query_lower and result.influencer.category:
+                influencer_category = result.influencer.category.lower()
+                
+                # 1. Direct category match boost (highest priority)
+                if query_lower == influencer_category:
+                    boosted_score += CATEGORY_BOOST
+                    boost_reasons.append(f"Exact category match: +{CATEGORY_BOOST:.3f}")
+                
+                # 2. Partial match for multi-word queries or partial words
+                elif query_lower in influencer_category or influencer_category in query_lower:
+                    partial_boost = CATEGORY_BOOST * 0.7  # 70% of full boost
+                    boosted_score += partial_boost
+                    boost_reasons.append(f"Partial category match: +{partial_boost:.3f}")
+            
+            # Update similarity score
+            enhanced_result.similarity_score = boosted_score
+            
+            # Update match reasons for debugging and transparency
+            rank_info = f"Rank: {i + 1}/{len(results)}"
+            match_reasons = result.match_reasons.copy()
+            
+            if boost_reasons:
+                match_reasons.extend(boost_reasons)
+                match_reasons.append(f"Boosted score: {original_score:.4f} → {boosted_score:.4f}")
+            
+            if rank_info not in match_reasons:
+                match_reasons.append(rank_info)
+            
+            enhanced_result.match_reasons = match_reasons
+            enhanced_results.append(enhanced_result)
+        
+        # Re-sort by boosted scores
+        enhanced_results.sort(key=lambda x: x.similarity_score, reverse=True)
+        
+        # Update ranks after re-sorting
+        for i, result in enumerate(enhanced_results):
+            # Update rank in match reasons
+            result.match_reasons = [reason for reason in result.match_reasons if not reason.startswith("Rank:")]
+            result.match_reasons.append(f"Final rank: {i + 1}/{len(enhanced_results)}")
+        
+        return enhanced_results
     
     def _log_search(self, request: SearchRequest, response: SearchResponse) -> None:
         """Log search for analytics and debugging."""
@@ -424,4 +471,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main()) 
+    exit(main())

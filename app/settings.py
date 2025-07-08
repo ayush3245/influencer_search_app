@@ -12,7 +12,7 @@ from typing import Optional
 from dotenv import load_dotenv
 
 from llama_index.core import Settings
-from llama_index.llms.openai import OpenAI
+from llama_index.llms.groq import Groq
 from llama_index.embeddings.clip import ClipEmbedding
 
 # Load environment variables from .env file
@@ -34,8 +34,8 @@ class AppConfig:
     def __init__(self):
         """Initialize configuration from environment variables."""
         # API Configuration
-        self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        self.model_name = os.getenv("MODEL", "gpt-4o")
+        self.groq_api_key = os.getenv("GROQ_API_KEY")
+        self.model_name = os.getenv("MODEL", "llama3-8b-8192")
         
         # CLIP Configuration
         self.clip_model_name = os.getenv("CLIP_MODEL", "ViT-B/32")
@@ -44,7 +44,7 @@ class AppConfig:
         # Data Configuration
         self.data_dir = Path(os.getenv("DATA_DIR", "data"))
         self.storage_dir = Path(os.getenv("STORAGE_DIR", "storage"))
-        self.vector_store_path = self.storage_dir / "vector_store"
+        self.vector_store_path = self.storage_dir / "vector_index"
         
         # Application Settings
         self.app_env = os.getenv("APP_ENV", "development")
@@ -69,8 +69,8 @@ class AppConfig:
     
     def _validate_config(self) -> None:
         """Validate configuration settings."""
-        if not self.openai_api_key:
-            raise RuntimeError("OPENAI_API_KEY is missing in environment variables")
+        if not self.groq_api_key:
+            logger.warning("GROQ_API_KEY is missing - LLM features will be disabled, using CLIP only")
         
         if self.clip_device not in ["cpu", "cuda"]:
             logger.warning(f"Invalid CLIP_DEVICE '{self.clip_device}', defaulting to 'cpu'")
@@ -83,7 +83,7 @@ class AppConfig:
         """Create necessary directories if they don't exist."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.vector_store_path.mkdir(parents=True, exist_ok=True)
+        # Note: vector_store_path is a file prefix, not a directory
         
         logger.info(f"Data directory: {self.data_dir}")
         logger.info(f"Storage directory: {self.storage_dir}")
@@ -103,7 +103,7 @@ config = AppConfig()
 
 def init_settings() -> None:
     """
-    Initialize LlamaIndex settings with CLIP embeddings and OpenAI LLM.
+    Initialize LlamaIndex settings with CLIP embeddings and Groq LLM.
     
     This function configures the global Settings object used by LlamaIndex
     for embedding generation and LLM interactions.
@@ -115,12 +115,16 @@ def init_settings() -> None:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
-        # Initialize OpenAI LLM
-        Settings.llm = OpenAI(
-            model=config.model_name,
-            api_key=config.openai_api_key,
-            temperature=0.1  # Low temperature for consistent results
-        )
+        # Initialize Groq LLM (if API key is available)
+        if config.groq_api_key:
+            Settings.llm = Groq(
+                model=config.model_name,
+                api_key=config.groq_api_key,
+                temperature=0.1  # Low temperature for consistent results
+            )
+            logger.info(f"Initialized Groq LLM: {config.model_name}")
+        else:
+            logger.warning("Groq LLM not initialized - API key missing")
         
         # Initialize CLIP embedding model
         Settings.embed_model = ClipEmbedding(

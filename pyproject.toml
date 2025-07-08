@@ -11,8 +11,7 @@ dependencies = [
     "llama-index-core>=0.12.28,<0.13.0", 
     "llama-index-server>=0.1.17,<0.2.0", 
     "docx2txt>=0.8,<0.9", 
-    "llama-index-llms-openai>=0.3.2,<0.4.0", 
-    "llama-index-embeddings-openai>=0.3.1,<0.4.0", 
+    "llama-index-llms-groq>=0.3.0,<0.4.0", 
     "llama-index-embeddings-clip",
     "torch>=2.0.0",
     "torchvision>=0.15.0",
@@ -22,7 +21,10 @@ dependencies = [
     "numpy>=1.24.0",
     "faiss-cpu>=1.7.0",
     "fastapi>=0.100.0",
-    "uvicorn>=0.20.0"
+    "uvicorn>=0.20.0",
+    "instaloader>=4.14.0",
+    "pandas>=1.5.0",
+    "openpyxl>=3.0.0"
 ]
 
 [[project.authors]]
