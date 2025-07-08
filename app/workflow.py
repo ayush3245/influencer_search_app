@@ -26,41 +26,27 @@ def influencer_search_tool(query: str, limit: int = 5) -> str:
     for i, result in enumerate(results[:3], 1):
         logger.info(f"  {i}. {result.influencer.name} ({result.similarity_score:.1%})")
     
-    response_lines = [f"Found {len(results)} influencer(s) from our database:\n"]
+    # CLEAN, STRUCTURED OUTPUT - No excessive formatting
+    response_parts = [f"Found {len(results)} influencer(s):\n"]
+    
     for i, result in enumerate(results, 1):
         inf = result.influencer
         
-        # Format comprehensive influencer information
-        response_lines.append(f"{i}. **{inf.name}**")
-        
-        # Username and verification status
+        # Basic info in clean format
+        name_line = f"{i}. {inf.name}"
         if inf.username:
-            verification = " ✅" if inf.is_verified else ""
-            privacy = " 🔒" if inf.is_private else ""
-            response_lines.append(f"   📱 @{inf.username}{verification}{privacy}")
+            name_line += f" (@{inf.username})"
+        if inf.is_verified:
+            name_line += " ✓"
         
-        # Category and bio
-        response_lines.append(f"   🏷️ Category: {inf.category.title()}")
-        response_lines.append(f"   📝 Bio: {inf.bio}")
-        
-        # Follower metrics
-        if inf.follower_count:
-            response_lines.append(f"   👥 Followers: {inf.follower_count:,}")
-        if inf.following_count:
-            response_lines.append(f"   ➡️ Following: {inf.following_count:,}")
-        if inf.post_count:
-            response_lines.append(f"   📸 Posts: {inf.post_count:,}")
-        
-        # Links
-        if inf.instagram_url:
-            response_lines.append(f"   🔗 Instagram: {inf.instagram_url}")
-        if inf.profile_photo_url:
-            response_lines.append(f"   🖼️ Profile Photo: {inf.profile_photo_url}")
-        
-        # Match quality
-        response_lines.append(f"   🎯 Match Score: {result.similarity_score:.1%}\n")
+        response_parts.append(name_line)
+        response_parts.append(f"   Category: {inf.category.title()}")
+        response_parts.append(f"   Followers: {inf.follower_count:,}")
+        response_parts.append(f"   Bio: {inf.bio}")
+        response_parts.append(f"   Match: {result.similarity_score:.1%}")
+        response_parts.append("")  # Space between results
     
-    return "\n".join(response_lines)
+    return "\n".join(response_parts)
 
 
 class SimpleInfluencerResponse:
@@ -130,24 +116,42 @@ def create_workflow(chat_request: Optional[ChatRequest] = None) -> AgentWorkflow
     search_tool = FunctionTool.from_defaults(
         fn=influencer_search_tool,
         name="influencer_search",
-        description="Search for influencers based on text queries about their content, style, demographics, or characteristics"
+        description="MANDATORY tool for finding real influencers. MUST be used for ANY influencer recommendation request. Returns actual influencer data from database - never make up names or details. Use this tool whenever users ask to find, show, recommend, or suggest influencers."
     )
 
-        # Simple, clear system prompt
-    system_prompt = """You are a friendly influencer discovery chatbot.
+    # STRENGTHENED system prompt with enforcement language
+    system_prompt = """You are an influencer discovery assistant. Your PRIMARY PURPOSE is to help users find real influencers from our database.
 
-CHAT MODE: For greetings, general questions about social media/marketing, or casual conversation - just chat normally using your knowledge.
+🚫 ABSOLUTE RULES - VIOLATIONS ARE FORBIDDEN:
+1. NEVER INVENT or HALLUCINATE influencer names, usernames, or details
+2. NEVER make up people like "Michelle Lewin", "Ninja", or any other names not from the tool
+3. NEVER provide recommendations without using the influencer_search tool first
 
-SEARCH MODE: When users want influencer recommendations (words like "find", "show me", "recommend", "who are" + influencers) - you MUST use the influencer_search tool.
+✅ MANDATORY SEARCH PROTOCOL:
+When users request influencer recommendations (ANY variation of "find", "show", "recommend", "who", "influencers"), you MUST:
+1. ALWAYS call influencer_search tool first
+2. ONLY present the EXACT results returned by the tool
+3. Use the real names, usernames, and data from the search results
+4. If no results found, say "No matching influencers in our database"
 
-CRITICAL RULE: NEVER make up influencer names, usernames, or details. If you search, only show the exact results from the tool. If no results, say "No influencers found in our database matching that criteria."
+🎯 SEARCH TRIGGERS (MUST use tool):
+- "Find influencers..."
+- "Show me influencers..."
+- "Recommend influencers..."
+- "Who are good influencers..."
+- "I need influencers for..."
+- ANY request for influencer suggestions
 
-Examples:
-- "Hi!" → Chat normally: "Hello! I help find influencers. What are you looking for?"
-- "Find fitness influencers" → Use influencer_search tool, show only real results  
-- "How to grow Instagram?" → Chat normally with social media advice
+💬 GENERAL CHAT (No tool needed):
+- Greetings: "Hi", "Hello"
+- General advice: "How to grow followers"
+- Marketing questions: "Best posting times"
 
-Be conversational but always search when they want influencer recommendations!"""
+⚡ OUTPUT FORMAT:
+Present search results clearly with: Name, Category, Followers, Bio, and Match Score.
+Be conversational but NEVER add fictional details.
+
+REMEMBER: You can only recommend influencers that exist in our database via the search tool!"""
 
     return AgentWorkflow.from_tools_or_functions(
         tools_or_functions=[search_tool],
