@@ -6,7 +6,7 @@ search requests, and API responses.
 """
 
 from pydantic import BaseModel, Field, HttpUrl, validator
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from enum import Enum
 
 
@@ -34,8 +34,8 @@ class InfluencerData(BaseModel):
     follower_count: int = Field(..., ge=0, le=100_000_000, description="Number of followers")
     following_count: Optional[int] = Field(None, ge=0, description="Number of accounts following")
     post_count: Optional[int] = Field(None, ge=0, description="Number of posts")
-    profile_photo_url: HttpUrl = Field(..., description="URL to profile photo")
-    content_thumbnail_url: HttpUrl = Field(..., description="URL to content thumbnail")
+    profile_photo_url: Union[HttpUrl, str] = Field(..., description="URL or local path to profile photo")
+    content_thumbnail_url: Union[HttpUrl, str] = Field(..., description="URL or local path to content thumbnail")
     instagram_url: Optional[HttpUrl] = Field(None, description="Instagram profile URL")
     is_verified: Optional[bool] = Field(False, description="Whether the account is verified")
     is_private: Optional[bool] = Field(False, description="Whether the account is private")
@@ -53,6 +53,23 @@ class InfluencerData(BaseModel):
         if not v.strip():
             raise ValueError('Bio cannot be empty or whitespace only')
         return v.strip()
+    
+    @validator('profile_photo_url', 'content_thumbnail_url', pre=True)
+    def validate_image_path(cls, v):
+        """Accept both URLs and local file paths for image locations."""
+        if isinstance(v, str):
+            # Check if it's a local path (contains path separators and no http)
+            if ('\\' in v or '/' in v) and not v.startswith(('http://', 'https://')):
+                # It's a local path - return as string
+                return v
+            # Try to validate as URL
+            try:
+                from pydantic import HttpUrl
+                return HttpUrl(v)
+            except:
+                # If URL validation fails, return as string (might be a malformed URL)
+                return v
+        return v
     
     class Config:
         """Pydantic config."""

@@ -20,8 +20,89 @@ import torch
 from llama_index.embeddings.clip import ClipEmbedding
 from app.settings import config, get_clip_embedding_model
 from app.schemas import InfluencerData
+import glob
 
 logger = logging.getLogger(__name__)
+
+
+class LocalImagePathResolver:
+    """Resolves CSV row indices to local image file paths."""
+    
+    def __init__(self, base_image_dir: str = "data/images/downloaded_images"):
+        """
+        Initialize path resolver.
+        
+        Args:
+            base_image_dir: Base directory containing downloaded images
+        """
+        self.base_dir = Path(base_image_dir)
+        self._validate_directory()
+        
+    def _validate_directory(self):
+        """Validate that the image directory exists."""
+        if not self.base_dir.exists():
+            logger.warning(f"Local image directory not found: {self.base_dir}")
+        else:
+            logger.info(f"Local image directory found: {self.base_dir}")
+    
+    def get_local_image_paths(self, csv_row_index: int) -> Dict[str, Optional[str]]:
+        """
+        Get local image paths for a given CSV row index.
+        
+        Args:
+            csv_row_index: 0-based CSV row index
+            
+        Returns:
+            Dictionary with 'profile' and 'content' keys mapping to local paths or None
+        """
+        # Convert 0-based to 1-based with zero padding
+        row_num = f"{csv_row_index + 1:02d}"
+        
+        result = {
+            'profile': self._find_image_file(f"influencer_{row_num}_profile"),
+            'content': self._find_image_file(f"influencer_{row_num}_thumb")
+        }
+        
+        logger.debug(f"Row {csv_row_index} -> {result}")
+        return result
+    
+    def _find_image_file(self, base_filename: str) -> Optional[str]:
+        """
+        Find image file with various extensions.
+        
+        Args:
+            base_filename: Base filename without extension
+            
+        Returns:
+            Full path to image file or None if not found
+        """
+        # Common image extensions
+        extensions = ['jpg', 'jpeg', 'png', 'webp']
+        
+        for ext in extensions:
+            file_path = self.base_dir / f"{base_filename}.{ext}"
+            if file_path.exists():
+                return str(file_path)
+        
+        # If not found, log warning
+        logger.debug(f"Image file not found for pattern: {base_filename}.*")
+        return None
+    
+    def get_available_images_count(self) -> Dict[str, int]:
+        """
+        Get count of available local images.
+        
+        Returns:
+            Dictionary with counts of profile and content images
+        """
+        profile_count = len(list(self.base_dir.glob("*_profile.*")))
+        content_count = len(list(self.base_dir.glob("*_thumb.*")))
+        
+        return {
+            'profile_images': profile_count,
+            'content_images': content_count,
+            'total_images': profile_count + content_count
+        }
 
 
 class EmbeddingCache:
@@ -117,6 +198,74 @@ class ImageProcessor:
         except Exception as e:
             logger.error(f"Failed to process image from {url}: {e}")
             return None
+    
+    def load_local_image(self, file_path: str) -> Optional[Image.Image]:
+        """
+        Load and preprocess image from local file path.
+        
+        Args:
+            file_path: Local path to image file
+            
+        Returns:
+            PIL Image object or None if failed
+        """
+        try:
+            # Convert to Path object for proper cross-platform handling
+            path = Path(file_path).resolve()
+            
+            # Check if file exists
+            if not path.exists():
+                logger.warning(f"Local image file not found: {file_path}")
+                return None
+            
+            # Log file details for debugging
+            logger.debug(f"Loading image: {path} (size: {path.stat().st_size} bytes)")
+            
+            # Load image with explicit path string conversion
+            image = Image.open(str(path))
+            
+            # Convert to RGB if needed
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+                logger.debug(f"Converted image from {image.mode} to RGB")
+            
+            # Resize if too large
+            original_size = image.size
+            if image.size[0] > self.max_image_size[0] or image.size[1] > self.max_image_size[1]:
+                image.thumbnail(self.max_image_size, Image.Resampling.LANCZOS)
+                logger.debug(f"Resized image from {original_size} to {image.size}")
+            
+            logger.debug(f"Successfully loaded image: {path}")
+            return image
+            
+        except Exception as e:
+            logger.error(f"Failed to load local image from {file_path}: {e}")
+            logger.debug(f"Exception details: {type(e).__name__}: {str(e)}")
+            return None
+    
+    def is_local_path(self, path: str) -> bool:
+        """
+        Determine if a path is a local file path or a URL.
+        
+        Args:
+            path: Path or URL string
+            
+        Returns:
+            True if local path, False if URL
+        """
+        if not path:
+            return False
+        
+        # Check for URL schemes
+        if path.startswith(('http://', 'https://', 'ftp://')):
+            return False
+        
+        # Check for local path indicators
+        if any(indicator in path for indicator in ['\\', '/', '.']):
+            # Could be a local path
+            return True
+        
+        return False
 
 
 class CLIPEmbeddingService:
@@ -168,33 +317,51 @@ class CLIPEmbeddingService:
             logger.error(f"Failed to generate text embedding: {e}")
             return None
     
-    def generate_image_embedding(self, image_url: str) -> Optional[np.ndarray]:
+    def generate_image_embedding(self, image_path: str) -> Optional[np.ndarray]:
         """
-        Generate embedding for image from URL.
+        Generate embedding for image from URL or local file path.
         
         Args:
-            image_url: URL of image to embed
+            image_path: URL or local file path of image to embed
             
         Returns:
             Numpy array embedding or None if failed
         """
-        if not image_url:
+        if not image_path:
             return None
         
         # Check cache first
-        cache_key = self.cache._get_cache_key(image_url)
+        cache_key = self.cache._get_cache_key(image_path)
         cached_embedding = self.cache.get(cache_key)
         if cached_embedding is not None:
             return cached_embedding
         
         try:
-            # Download and process image
-            image = self.image_processor.download_image(image_url)
-            if image is None:
-                return None
-            
-            # Generate embedding using CLIP
-            embedding = self.clip_model.get_image_embedding(image)
+            # Handle local paths vs URLs differently for CLIP
+            if self.image_processor.is_local_path(image_path):
+                # For local paths, pass the path directly to CLIP (LlamaIndex expects file paths)
+                logger.debug(f"Using local image path: {image_path}")
+                # Convert to absolute path for CLIP
+                absolute_path = str(Path(image_path).resolve())
+                embedding = self.clip_model.get_image_embedding(absolute_path)
+            else:
+                # For URLs, download first then save temporarily for CLIP
+                logger.debug(f"Downloading image from URL: {image_path}")
+                image = self.image_processor.download_image(image_path)
+                if image is None:
+                    return None
+                
+                # Save to temporary file for CLIP processing
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
+                    image.save(tmp_file.name, 'JPEG')
+                    tmp_path = tmp_file.name
+                
+                try:
+                    embedding = self.clip_model.get_image_embedding(tmp_path)
+                finally:
+                    # Clean up temporary file
+                    Path(tmp_path).unlink(missing_ok=True)
             
             # Convert to numpy array
             if isinstance(embedding, list):
@@ -208,7 +375,7 @@ class CLIPEmbeddingService:
             return embedding
             
         except Exception as e:
-            logger.error(f"Failed to generate image embedding for {image_url}: {e}")
+            logger.error(f"Failed to generate image embedding for {image_path}: {e}")
             return None
     
     def generate_influencer_embeddings(self, influencer: InfluencerData) -> Dict[str, Optional[np.ndarray]]:

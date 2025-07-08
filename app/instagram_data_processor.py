@@ -12,7 +12,7 @@ from typing import List, Dict, Any, Optional
 import time
 
 from app.data_loader import InfluencerDataLoader
-from app.embedding_service import CLIPEmbeddingService
+from app.embedding_service import CLIPEmbeddingService, LocalImagePathResolver
 from app.vector_store import VectorStore
 from app.schemas import InfluencerData
 from app.settings import config
@@ -28,6 +28,11 @@ class InstagramDataProcessor:
         self.data_loader = InfluencerDataLoader(validate_images=False)
         self.embedding_service = CLIPEmbeddingService()
         self.vector_store = VectorStore()
+        self.image_path_resolver = LocalImagePathResolver()
+        
+        # Log local image availability
+        image_stats = self.image_path_resolver.get_available_images_count()
+        logger.info(f"Local images available: {image_stats}")
         
     def load_instagram_data(self, csv_path: str) -> List[InfluencerData]:
         """
@@ -62,6 +67,45 @@ class InstagramDataProcessor:
             logger.error(f"Failed to load Instagram data: {e}")
             raise
     
+    def replace_urls_with_local_paths(self, influencers: List[InfluencerData]) -> List[InfluencerData]:
+        """
+        Replace expired Instagram URLs with local image paths.
+        
+        Args:
+            influencers: List of influencer data with URLs
+            
+        Returns:
+            List of influencer data with local paths where available
+        """
+        logger.info("Replacing expired URLs with local image paths...")
+        
+        updated_influencers = []
+        local_replacements = 0
+        
+        for i, influencer in enumerate(influencers):
+            # Get local paths for this CSV row
+            local_paths = self.image_path_resolver.get_local_image_paths(i)
+            
+            # Create updated influencer data
+            updated_data = influencer.model_copy()
+            
+            # Replace profile photo URL if local file exists
+            if local_paths['profile']:
+                updated_data.profile_photo_url = local_paths['profile']
+                local_replacements += 1
+                logger.debug(f"Row {i}: Using local profile image {local_paths['profile']}")
+            
+            # Replace content thumbnail URL if local file exists
+            if local_paths['content']:
+                updated_data.content_thumbnail_url = local_paths['content']
+                local_replacements += 1
+                logger.debug(f"Row {i}: Using local content image {local_paths['content']}")
+            
+            updated_influencers.append(updated_data)
+        
+        logger.info(f"Replaced {local_replacements} URLs with local image paths")
+        return updated_influencers
+    
     def process_embeddings_batch(self, influencers: List[InfluencerData], batch_size: int = 5) -> Dict[str, Any]:
         """
         Process embeddings for a batch of influencers.
@@ -95,10 +139,30 @@ class InstagramDataProcessor:
                 text_embeddings = []
                 image_embeddings = []
                 
+                # Track embedding success for this batch
+                batch_text_success = 0
+                batch_image_success = 0
+                
                 for j, influencer in enumerate(batch):
                     embeddings = embeddings_data[j]
-                    text_embeddings.append(embeddings.get('text_embedding'))
-                    image_embeddings.append(embeddings.get('image_embedding'))
+                    
+                    # Fix: Use correct key for text embedding (bio)
+                    text_emb = embeddings.get('bio')
+                    text_embeddings.append(text_emb)
+                    if text_emb is not None:
+                        batch_text_success += 1
+                    
+                    # Fix: Handle image embeddings properly - try both profile and content
+                    profile_emb = embeddings.get('profile_photo')
+                    content_emb = embeddings.get('content_thumbnail')
+                    
+                    # Use profile image if available, otherwise use content, otherwise None
+                    image_emb = profile_emb if profile_emb is not None else content_emb
+                    image_embeddings.append(image_emb)
+                    if image_emb is not None:
+                        batch_image_success += 1
+                
+                logger.info(f"Batch embeddings: text {batch_text_success}/{len(batch)}, images {batch_image_success}/{len(batch)}")
                 
                 # Add batch to vector store
                 self.vector_store.add_influencers_batch(
@@ -161,6 +225,9 @@ class InstagramDataProcessor:
         if not influencers:
             logger.warning("No valid influencers loaded, stopping processing")
             return {'status': 'no_data', 'influencers_loaded': 0}
+        
+        # Step 1.5: Replace URLs with local paths
+        influencers = self.replace_urls_with_local_paths(influencers)
         
         # Step 2: Process embeddings
         embedding_stats = self.process_embeddings_batch(influencers)
