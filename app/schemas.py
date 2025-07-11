@@ -112,7 +112,7 @@ class SearchFilters(BaseModel):
 class SearchRequest(BaseModel):
     """Model for search requests."""
     
-    query: str = Field(..., min_length=1, max_length=200, description="Search query")
+    query: str = Field(..., min_length=1, max_length=200, description="Text search query")
     filters: Optional[SearchFilters] = Field(None, description="Additional search filters")
     limit: int = Field(10, ge=1, le=50, description="Maximum number of results")
     offset: int = Field(0, ge=0, description="Result offset for pagination")

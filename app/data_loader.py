@@ -383,7 +383,7 @@ class InfluencerDataLoader:
 
 def load_sample_data(validate_images: bool = False) -> List[InfluencerData]:
     """
-    Convenience function to load the sample influencer data.
+    Convenience function to load the Instagram influencer data.
     
     Args:
         validate_images: Whether to validate image URLs
@@ -392,7 +392,7 @@ def load_sample_data(validate_images: bool = False) -> List[InfluencerData]:
         List of validated InfluencerData objects
     """
     data_dir = Path(__file__).parent.parent / "data"
-    csv_file = data_dir / "sample_influencers.csv"
+    csv_file = data_dir / "instagram_influencers_final_20250708.csv"
     
     loader = InfluencerDataLoader(validate_images=validate_images)
     return loader.load_from_csv(csv_file)

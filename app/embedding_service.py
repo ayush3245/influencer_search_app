@@ -16,9 +16,9 @@ from PIL import Image
 import requests
 from io import BytesIO
 import torch
+from transformers import CLIPProcessor, CLIPModel
 
-from llama_index.embeddings.clip import ClipEmbedding
-from app.settings import config, get_clip_embedding_model
+from app.settings import config
 from app.schemas import InfluencerData
 import glob
 
@@ -201,112 +201,79 @@ class ImageProcessor:
     
     def load_local_image(self, file_path: str) -> Optional[Image.Image]:
         """
-        Load and preprocess image from local file path.
+        Load and preprocess local image file.
         
         Args:
-            file_path: Local path to image file
+            file_path: Path to local image file
             
         Returns:
             PIL Image object or None if failed
         """
         try:
-            # Convert to Path object for proper cross-platform handling
-            path = Path(file_path).resolve()
-            
-            # Check if file exists
-            if not path.exists():
-                logger.warning(f"Local image file not found: {file_path}")
-                return None
-            
-            # Log file details for debugging
-            logger.debug(f"Loading image: {path} (size: {path.stat().st_size} bytes)")
-            
-            # Load image with explicit path string conversion
-            image = Image.open(str(path))
+            image = Image.open(file_path)
             
             # Convert to RGB if needed
             if image.mode != 'RGB':
                 image = image.convert('RGB')
-                logger.debug(f"Converted image from {image.mode} to RGB")
             
             # Resize if too large
-            original_size = image.size
             if image.size[0] > self.max_image_size[0] or image.size[1] > self.max_image_size[1]:
                 image.thumbnail(self.max_image_size, Image.Resampling.LANCZOS)
-                logger.debug(f"Resized image from {original_size} to {image.size}")
             
-            logger.debug(f"Successfully loaded image: {path}")
             return image
             
         except Exception as e:
-            logger.error(f"Failed to load local image from {file_path}: {e}")
-            logger.debug(f"Exception details: {type(e).__name__}: {str(e)}")
+            logger.error(f"Failed to load local image {file_path}: {e}")
             return None
     
     def is_local_path(self, path: str) -> bool:
         """
-        Determine if a path is a local file path or a URL.
+        Check if a path is a local file path.
         
         Args:
-            path: Path or URL string
+            path: Path to check
             
         Returns:
             True if local path, False if URL
         """
-        if not path:
-            return False
-        
-        # Check for URL schemes
-        if path.startswith(('http://', 'https://', 'ftp://')):
-            return False
-        
-        # Check for local path indicators
-        if any(indicator in path for indicator in ['\\', '/', '.']):
-            # Could be a local path
-            return True
-        
-        return False
+        return path.startswith(('/', './', '../')) or '://' not in path
 
 
 class CLIPEmbeddingService:
-    """Service for generating CLIP embeddings for text and images."""
+    """CLIP embedding service for text and image embeddings."""
     
     def __init__(self):
-        """Initialize the embedding service."""
-        self.clip_model = get_clip_embedding_model()
+        """Initialize CLIP model and processor."""
+        self.device = config.clip_device
+        self.model_name = config.clip_model_name
+        
+        # Load CLIP model and processor
+        self.model = CLIPModel.from_pretrained(self.model_name).to(self.device)
+        self.processor = CLIPProcessor.from_pretrained(self.model_name)
+        
+        # Initialize cache and image processor
         self.cache = EmbeddingCache()
         self.image_processor = ImageProcessor()
-        self.batch_size = config.batch_size
-        logger.info(f"Initialized CLIP embedding service with model: {config.clip_model_name}")
+        
+        logger.info(f"Initialized CLIP model: {self.model_name} on {self.device}")
     
     def generate_text_embedding(self, text: str) -> Optional[np.ndarray]:
-        """
-        Generate embedding for text content.
-        
-        Args:
-            text: Text to embed
-            
-        Returns:
-            Numpy array embedding or None if failed
-        """
-        if not text or not text.strip():
-            return None
-        
-        # Check cache first
-        cache_key = self.cache._get_cache_key(text)
-        cached_embedding = self.cache.get(cache_key)
-        if cached_embedding is not None:
-            return cached_embedding
-        
+        """Generate text embedding using CLIP."""
         try:
-            # Generate embedding using CLIP
-            embedding = self.clip_model.get_text_embedding(text.strip())
+            # Check cache first
+            cache_key = f"text_{hashlib.md5(text.encode()).hexdigest()}"
+            cached_embedding = self.cache.get(cache_key)
+            if cached_embedding is not None:
+                return cached_embedding
             
-            # Convert to numpy array
-            if isinstance(embedding, list):
-                embedding = np.array(embedding, dtype=np.float32)
-            elif torch.is_tensor(embedding):
-                embedding = embedding.cpu().numpy().astype(np.float32)
+            # Process text
+            inputs = self.processor(text=text, return_tensors="pt", padding=True, truncation=True)
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            # Generate embedding
+            with torch.no_grad():
+                text_features = self.model.get_text_features(**inputs)
+                embedding = text_features.cpu().numpy().flatten()
             
             # Cache the result
             self.cache.set(cache_key, embedding)
@@ -318,56 +285,31 @@ class CLIPEmbeddingService:
             return None
     
     def generate_image_embedding(self, image_path: str) -> Optional[np.ndarray]:
-        """
-        Generate embedding for image from URL or local file path.
-        
-        Args:
-            image_path: URL or local file path of image to embed
-            
-        Returns:
-            Numpy array embedding or None if failed
-        """
-        if not image_path:
-            return None
-        
-        # Check cache first
-        cache_key = self.cache._get_cache_key(image_path)
-        cached_embedding = self.cache.get(cache_key)
-        if cached_embedding is not None:
-            return cached_embedding
-        
+        """Generate image embedding using CLIP."""
         try:
-            # Handle local paths vs URLs differently for CLIP
-            if self.image_processor.is_local_path(image_path):
-                # For local paths, pass the path directly to CLIP (LlamaIndex expects file paths)
-                logger.debug(f"Using local image path: {image_path}")
-                # Convert to absolute path for CLIP
-                absolute_path = str(Path(image_path).resolve())
-                embedding = self.clip_model.get_image_embedding(absolute_path)
-            else:
-                # For URLs, download first then save temporarily for CLIP
-                logger.debug(f"Downloading image from URL: {image_path}")
-                image = self.image_processor.download_image(image_path)
-                if image is None:
-                    return None
-                
-                # Save to temporary file for CLIP processing
-                import tempfile
-                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
-                    image.save(tmp_file.name, 'JPEG')
-                    tmp_path = tmp_file.name
-                
-                try:
-                    embedding = self.clip_model.get_image_embedding(tmp_path)
-                finally:
-                    # Clean up temporary file
-                    Path(tmp_path).unlink(missing_ok=True)
+            # Check cache first
+            cache_key = f"image_{hashlib.md5(image_path.encode()).hexdigest()}"
+            cached_embedding = self.cache.get(cache_key)
+            if cached_embedding is not None:
+                return cached_embedding
             
-            # Convert to numpy array
-            if isinstance(embedding, list):
-                embedding = np.array(embedding, dtype=np.float32)
-            elif torch.is_tensor(embedding):
-                embedding = embedding.cpu().numpy().astype(np.float32)
+            # Load and process image
+            if self.image_processor.is_local_path(image_path):
+                image = self.image_processor.load_local_image(image_path)
+            else:
+                image = self.image_processor.download_image(image_path)
+            
+            if image is None:
+                return None
+            
+            # Process image
+            inputs = self.processor(images=image, return_tensors="pt", padding=True)
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            # Generate embedding
+            with torch.no_grad():
+                image_features = self.model.get_image_features(**inputs)
+                embedding = image_features.cpu().numpy().flatten()
             
             # Cache the result
             self.cache.set(cache_key, embedding)
@@ -375,109 +317,56 @@ class CLIPEmbeddingService:
             return embedding
             
         except Exception as e:
-            logger.error(f"Failed to generate image embedding for {image_path}: {e}")
+            logger.error(f"Failed to generate image embedding: {e}")
             return None
     
     def generate_influencer_embeddings(self, influencer: InfluencerData) -> Dict[str, Optional[np.ndarray]]:
         """
-        Generate all embeddings for an influencer (bio, profile photo, content thumbnail).
+        Generate all embeddings for an influencer.
         
         Args:
-            influencer: InfluencerData object
+            influencer: Influencer data
             
         Returns:
-            Dictionary with embedding types as keys and numpy arrays as values
+            Dictionary with text, profile, and content embeddings
         """
-        embeddings = {}
+        embeddings = {
+            'text': None,
+            'profile': None,
+            'content': None
+        }
         
         # Generate text embedding from bio
-        bio_embedding = self.generate_text_embedding(influencer.bio)
-        embeddings['bio'] = bio_embedding
+        if influencer.bio:
+            text_content = f"{influencer.name} {influencer.bio} {influencer.category}"
+            embeddings['text'] = self.generate_text_embedding(text_content)
         
-        # Generate profile photo embedding
-        profile_embedding = self.generate_image_embedding(str(influencer.profile_photo_url))
-        embeddings['profile_photo'] = profile_embedding
+        # Generate profile image embedding
+        if influencer.profile_photo_url:
+            embeddings['profile'] = self.generate_image_embedding(influencer.profile_photo_url)
         
-        # Generate content thumbnail embedding
-        content_embedding = self.generate_image_embedding(str(influencer.content_thumbnail_url))
-        embeddings['content_thumbnail'] = content_embedding
-        
-        # Log results
-        success_count = sum(1 for emb in embeddings.values() if emb is not None)
-        logger.info(f"Generated {success_count}/3 embeddings for {influencer.name}")
+        # Generate content image embedding
+        if influencer.content_thumbnail_url:
+            embeddings['content'] = self.generate_image_embedding(influencer.content_thumbnail_url)
         
         return embeddings
     
     def batch_generate_text_embeddings(self, texts: List[str]) -> List[Optional[np.ndarray]]:
-        """
-        Generate embeddings for multiple texts in batches.
-        
-        Args:
-            texts: List of texts to embed
-            
-        Returns:
-            List of embeddings (same order as input)
-        """
+        """Generate embeddings for multiple texts efficiently."""
         embeddings = []
-        
-        for i in range(0, len(texts), self.batch_size):
-            batch = texts[i:i + self.batch_size]
-            batch_embeddings = []
-            
-            for text in batch:
-                embedding = self.generate_text_embedding(text)
-                batch_embeddings.append(embedding)
-            
-            embeddings.extend(batch_embeddings)
-            logger.info(f"Processed text batch {i//self.batch_size + 1}/{(len(texts) + self.batch_size - 1)//self.batch_size}")
-        
+        for text in texts:
+            embedding = self.generate_text_embedding(text)
+            embeddings.append(embedding)
         return embeddings
-    
-    def batch_generate_image_embeddings(self, image_urls: List[str]) -> List[Optional[np.ndarray]]:
-        """
-        Generate embeddings for multiple images in batches.
-        
-        Args:
-            image_urls: List of image URLs to embed
-            
-        Returns:
-            List of embeddings (same order as input)
-        """
-        embeddings = []
-        
-        for i in range(0, len(image_urls), self.batch_size):
-            batch = image_urls[i:i + self.batch_size]
-            batch_embeddings = []
-            
-            for url in batch:
-                embedding = self.generate_image_embedding(url)
-                batch_embeddings.append(embedding)
-            
-            embeddings.extend(batch_embeddings)
-            logger.info(f"Processed image batch {i//self.batch_size + 1}/{(len(image_urls) + self.batch_size - 1)//self.batch_size}")
-        
-        return embeddings
+
     
     def batch_generate_influencer_embeddings(self, influencers: List[InfluencerData]) -> List[Dict[str, Optional[np.ndarray]]]:
-        """
-        Generate embeddings for multiple influencers.
-        
-        Args:
-            influencers: List of InfluencerData objects
-            
-        Returns:
-            List of embedding dictionaries (same order as input)
-        """
-        all_embeddings = []
-        
-        for i, influencer in enumerate(influencers):
+        """Generate embeddings for multiple influencers efficiently."""
+        embeddings_list = []
+        for influencer in influencers:
             embeddings = self.generate_influencer_embeddings(influencer)
-            all_embeddings.append(embeddings)
-            
-            if (i + 1) % 5 == 0:
-                logger.info(f"Processed {i + 1}/{len(influencers)} influencers")
-        
-        return all_embeddings
+            embeddings_list.append(embeddings)
+        return embeddings_list
     
     def clear_cache(self) -> None:
         """Clear the embedding cache."""
@@ -486,44 +375,48 @@ class CLIPEmbeddingService:
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
         cache_files = list(self.cache.cache_dir.glob("*.pkl"))
-        total_size = sum(f.stat().st_size for f in cache_files)
-        
         return {
-            'enabled': self.cache.enabled,
+            'cache_enabled': self.cache.enabled,
             'cache_dir': str(self.cache.cache_dir),
-            'cached_items': len(cache_files),
-            'total_size_mb': total_size / (1024 * 1024)
+            'cached_embeddings': len(cache_files),
+            'cache_size_mb': sum(f.stat().st_size for f in cache_files) / (1024 * 1024)
         }
 
 
 # Global embedding service instance
-embedding_service = CLIPEmbeddingService()
+_embedding_service = None
 
 
 def get_embedding_service() -> CLIPEmbeddingService:
     """Get the global embedding service instance."""
-    return embedding_service
+    global _embedding_service
+    if _embedding_service is None:
+        _embedding_service = CLIPEmbeddingService()
+    return _embedding_service
 
 
-# Test function for development
 async def test_embedding_service():
-    """Test the embedding service with sample data."""
-    logger.info("Testing CLIP embedding service...")
+    """Test the embedding service functionality."""
+    print("\n🔍 Testing Embedding Service...")
     
-    # Test text embedding
-    test_text = "Fitness enthusiast with curly hair"
-    text_embedding = embedding_service.generate_text_embedding(test_text)
-    logger.info(f"Text embedding shape: {text_embedding.shape if text_embedding is not None else 'None'}")
-    
-    # Test image embedding
-    test_image_url = "https://images.unsplash.com/photo-1594736797933-d0200b5d2c84?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80"
-    image_embedding = embedding_service.generate_image_embedding(test_image_url)
-    logger.info(f"Image embedding shape: {image_embedding.shape if image_embedding is not None else 'None'}")
-    
-    # Test cache stats
-    cache_stats = embedding_service.get_cache_stats()
-    logger.info(f"Cache stats: {cache_stats}")
-
-
-if __name__ == "__main__":
-    asyncio.run(test_embedding_service()) 
+    try:
+        service = get_embedding_service()
+        
+        # Test text embedding
+        text_embedding = service.generate_text_embedding("fitness influencer")
+        if text_embedding is not None:
+            print(f"✅ Text embedding generated: {text_embedding.shape}")
+        else:
+            print("❌ Text embedding failed")
+            return False
+        
+        # Test cache stats
+        cache_stats = service.get_cache_stats()
+        print(f"✅ Cache stats: {cache_stats}")
+        
+        print("✅ Embedding service tests passed")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Embedding service test failed: {e}")
+        return False 

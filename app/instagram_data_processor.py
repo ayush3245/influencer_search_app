@@ -137,38 +137,43 @@ class InstagramDataProcessor:
                 
                 # Add to vector store
                 text_embeddings = []
-                image_embeddings = []
+                profile_embeddings = []
+                content_embeddings = []
                 
                 # Track embedding success for this batch
                 batch_text_success = 0
-                batch_image_success = 0
+                batch_profile_success = 0
+                batch_content_success = 0
                 
                 for j, influencer in enumerate(batch):
                     embeddings = embeddings_data[j]
                     
-                    # Fix: Use correct key for text embedding (bio)
+                    # Text embedding
                     text_emb = embeddings.get('bio')
                     text_embeddings.append(text_emb)
                     if text_emb is not None:
                         batch_text_success += 1
                     
-                    # Fix: Handle image embeddings properly - try both profile and content
+                    # Profile image embedding
                     profile_emb = embeddings.get('profile_photo')
-                    content_emb = embeddings.get('content_thumbnail')
+                    profile_embeddings.append(profile_emb)
+                    if profile_emb is not None:
+                        batch_profile_success += 1
                     
-                    # Use profile image if available, otherwise use content, otherwise None
-                    image_emb = profile_emb if profile_emb is not None else content_emb
-                    image_embeddings.append(image_emb)
-                    if image_emb is not None:
-                        batch_image_success += 1
+                    # Content image embedding
+                    content_emb = embeddings.get('content_thumbnail')
+                    content_embeddings.append(content_emb)
+                    if content_emb is not None:
+                        batch_content_success += 1
                 
-                logger.info(f"Batch embeddings: text {batch_text_success}/{len(batch)}, images {batch_image_success}/{len(batch)}")
+                logger.info(f"Batch embeddings: text {batch_text_success}/{len(batch)}, profile images {batch_profile_success}/{len(batch)}, content images {batch_content_success}/{len(batch)}")
                 
                 # Add batch to vector store
                 self.vector_store.add_influencers_batch(
                     influencers=batch,
                     text_embeddings=text_embeddings,
-                    image_embeddings=image_embeddings
+                    profile_embeddings=profile_embeddings,
+                    content_embeddings=content_embeddings
                 )
                 
                 processed_count += len(batch)

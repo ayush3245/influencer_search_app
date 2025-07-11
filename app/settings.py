@@ -1,8 +1,8 @@
 """
 Settings and configuration for the Influencer Discovery Tool.
 
-This module initializes LlamaIndex settings and provides configuration
-for CLIP embeddings, vector storage, and other application components.
+This module provides configuration for CLIP embeddings, vector storage, 
+and other application components without LLM dependencies.
 """
 
 import os
@@ -10,10 +10,6 @@ import logging
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
-
-from llama_index.core import Settings
-from llama_index.llms.groq import Groq
-from llama_index.embeddings.clip import ClipEmbedding
 
 # Load environment variables from .env file
 try:
@@ -33,12 +29,8 @@ class AppConfig:
     
     def __init__(self):
         """Initialize configuration from environment variables."""
-        # API Configuration
-        self.groq_api_key = os.getenv("GROQ_API_KEY")
-        self.model_name = os.getenv("MODEL", "llama3-8b-8192")
-        
         # CLIP Configuration
-        self.clip_model_name = os.getenv("CLIP_MODEL", "ViT-B/32")
+        self.clip_model_name = os.getenv("CLIP_MODEL", "openai/clip-vit-base-patch32")
         self.clip_device = os.getenv("CLIP_DEVICE", "cpu")  # or "cuda" if GPU available
         
         # Data Configuration
@@ -61,6 +53,11 @@ class AppConfig:
         self.cache_embeddings = os.getenv("CACHE_EMBEDDINGS", "true").lower() == "true"
         self.embedding_dimension = int(os.getenv("EMBEDDING_DIMENSION", "512"))
         
+        # Embedding weights for multimodal search
+        self.text_weight = float(os.getenv("TEXT_WEIGHT", "0.4"))
+        self.profile_weight = float(os.getenv("PROFILE_WEIGHT", "0.3"))
+        self.content_weight = float(os.getenv("CONTENT_WEIGHT", "0.3"))
+        
         # Validate configuration
         self._validate_config()
         
@@ -69,21 +66,25 @@ class AppConfig:
     
     def _validate_config(self) -> None:
         """Validate configuration settings."""
-        if not self.groq_api_key:
-            logger.warning("GROQ_API_KEY is missing - LLM features will be disabled, using CLIP only")
-        
         if self.clip_device not in ["cpu", "cuda"]:
             logger.warning(f"Invalid CLIP_DEVICE '{self.clip_device}', defaulting to 'cpu'")
             self.clip_device = "cpu"
         
         if self.default_similarity_threshold < 0 or self.default_similarity_threshold > 1:
             raise ValueError("SIMILARITY_THRESHOLD must be between 0 and 1")
+        
+        # Validate embedding weights
+        total_weight = self.text_weight + self.profile_weight + self.content_weight
+        if abs(total_weight - 1.0) > 0.01:  # Allow small floating point errors
+            logger.warning(f"Embedding weights don't sum to 1.0 (sum: {total_weight}), normalizing")
+            self.text_weight /= total_weight
+            self.profile_weight /= total_weight
+            self.content_weight /= total_weight
     
     def _create_directories(self) -> None:
         """Create necessary directories if they don't exist."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        # Note: vector_store_path is a file prefix, not a directory
         
         logger.info(f"Data directory: {self.data_dir}")
         logger.info(f"Storage directory: {self.storage_dir}")
@@ -103,10 +104,9 @@ config = AppConfig()
 
 def init_settings() -> None:
     """
-    Initialize LlamaIndex settings with CLIP embeddings and Groq LLM.
+    Initialize application settings without LLM dependencies.
     
-    This function configures the global Settings object used by LlamaIndex
-    for embedding generation and LLM interactions.
+    This function configures logging and validates the configuration.
     """
     try:
         # Configure logging
@@ -115,47 +115,14 @@ def init_settings() -> None:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
-        # Initialize Groq LLM (if API key is available)
-        if config.groq_api_key:
-            Settings.llm = Groq(
-                model=config.model_name,
-                api_key=config.groq_api_key,
-                temperature=0.1  # Low temperature for consistent results
-            )
-            logger.info(f"Initialized Groq LLM: {config.model_name}")
-        else:
-            logger.warning("Groq LLM not initialized - API key missing")
-        
-        # Initialize CLIP embedding model
-        Settings.embed_model = ClipEmbedding(
-            model_name=config.clip_model_name,
-            device=config.clip_device
-        )
-        
-        # Set chunk size and overlap for text processing
-        Settings.chunk_size = 512
-        Settings.chunk_overlap = 50
-        
         logger.info(f"Initialized settings with CLIP model: {config.clip_model_name}")
         logger.info(f"Using device: {config.clip_device}")
         logger.info(f"Environment: {config.app_env}")
+        logger.info(f"Embedding weights - Text: {config.text_weight}, Profile: {config.profile_weight}, Content: {config.content_weight}")
         
     except Exception as e:
         logger.error(f"Failed to initialize settings: {e}")
         raise
-
-
-def get_clip_embedding_model() -> ClipEmbedding:
-    """
-    Get a configured CLIP embedding model instance.
-    
-    Returns:
-        ClipEmbedding: Configured CLIP embedding model
-    """
-    return ClipEmbedding(
-        model_name=config.clip_model_name,
-        device=config.clip_device
-    )
 
 
 def get_embedding_dimension() -> int:

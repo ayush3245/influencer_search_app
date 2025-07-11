@@ -43,7 +43,6 @@ Phase 6: Deployment & Documentation (Week 5-6)
 **Deliverables**:
 - `app/embeddings.py` - CLIP embedding utilities
 - `app/vector_store.py` - Vector storage management
-- Updated `generate.py` - Embedding generation pipeline
 
 **Testing**: Generate embeddings for all sample data
 

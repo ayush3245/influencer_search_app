@@ -1,70 +1,49 @@
 [project]
-name = "influencer-search-app"
-version = "0.1.0"
-description = "AI-powered influencer discovery tool with semantic search capabilities for text and image data"
+name = "influencer-discovery-tool"
+version = "1.0.0"
+description = "AI-powered influencer discovery using multimodal search"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
-dependencies = [ 
-    "python-dotenv>=1.0.0,<2.0.0", 
-    "pydantic<2.10", 
-    "aiostream>=0.5.2,<0.6.0", 
-    "llama-index-core>=0.12.28,<0.13.0", 
-    "llama-index-server>=0.1.17,<0.2.0", 
-    "docx2txt>=0.8,<0.9", 
-    "llama-index-llms-groq>=0.3.0,<0.4.0", 
-    "llama-index-embeddings-clip",
-    "torch>=2.0.0",
-    "torchvision>=0.15.0",
-    "Pillow>=9.0.0",
-    "requests>=2.28.0",
-    "pandas>=1.5.0",
+requires-python = ">=3.8"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "jinja2>=3.1.0",
+    "pydantic>=2.0.0",
     "numpy>=1.24.0",
+    "pandas>=2.0.0",
     "faiss-cpu>=1.7.0",
-    "fastapi>=0.100.0",
-    "uvicorn>=0.20.0",
-    "instaloader>=4.14.0",
-    "pandas>=1.5.0",
-    "openpyxl>=3.0.0"
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
+    "pillow>=10.0.0",
+    "requests>=2.31.0",
+    "python-multipart>=0.0.6",
+    "python-dotenv>=1.0.0",
 ]
 
-[[project.authors]]
-name = "Influencer Discovery Team"
-email = "team@influencerdiscovery.ai"
-
 [project.optional-dependencies]
-dev = [ "mypy>=1.8.0,<2.0.0", "pytest>=8.3.5,<9.0.0", "pytest-asyncio>=0.25.3,<0.26.0" ]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+]
 
-[project.scripts]
-generate = "generate:generate_index"
-generate_index = "generate:generate_index"
-generate_embeddings = "generate:generate_embeddings"
-
-[tool]
-[tool.mypy]
-python_version = "3.11"
-plugins = "pydantic.mypy"
-exclude = [ "tests", "venv", ".venv", "output", "config" ]
-check_untyped_defs = true
-warn_unused_ignores = false
-show_error_codes = true
-namespace_packages = true
-ignore_missing_imports = true
-follow_imports = "silent"
-implicit_optional = true
-strict_optional = false
-disable_error_code = [ "return-value", "assignment" ]
-
-[[tool.mypy.overrides]]
-module = "app.*"
-ignore_missing_imports = false
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
-[tool.hatch]
-[tool.hatch.metadata]
-allow-direct-references = true
+[tool.black]
+line-length = 88
+target-version = ['py38']
 
-[build-system]
-requires = [ "hatchling>=1.24" ]
-build-backend = "hatchling.build"
+[tool.pytest.ini_options]
+testpaths = ["test_*.py"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

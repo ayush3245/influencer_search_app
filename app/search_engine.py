@@ -8,10 +8,11 @@ with metadata filtering and result ranking.
 import logging
 from typing import List, Optional, Dict, Any, Union
 import time
-
-from app.embedding_service import embedding_service
+import numpy as np
+from app.embedding_service import get_embedding_service
 from app.vector_store import vector_store
 from app.schemas import SearchRequest, SearchResponse, SearchResult, SearchFilters, InfluencerData
+from app.vector_store import VectorSearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +27,17 @@ class InfluencerSearchEngine:
     
     def __init__(self):
         """Initialize the search engine."""
-        self.embedding_service = embedding_service
+        self.embedding_service = get_embedding_service()
         self.vector_store = vector_store
         self._search_history: List[Dict[str, Any]] = []
     
     def search(self, request: SearchRequest) -> SearchResponse:
         """
-        Perform comprehensive influencer search.
+        Perform comprehensive influencer search using text query that leverages
+        bio, profile image, and content image embeddings in the background.
         
         Args:
-            request: SearchRequest with query and parameters
+            request: SearchRequest with text query and parameters
             
         Returns:
             SearchResponse with ranked results
@@ -43,29 +45,18 @@ class InfluencerSearchEngine:
         start_time = time.time()
         
         try:
-            logger.info(f"Processing search: '{request.query}' with {request.limit} results")
+            logger.info(f"Processing text search: '{request.query}' with {request.limit} results")
             
-            # Generate query embeddings
-            text_embedding = None
-            image_embedding = None
-            
-            if request.query:
-                text_embedding = self.embedding_service.generate_text_embedding(request.query)
-                if text_embedding is None:
-                    logger.warning("Failed to generate text embedding for query")
-            
-            # TODO: Add image query support when we have real images
-            # if request.image_query:
-            #     image_embedding = self.embedding_service.generate_image_embedding(request.image_query)
-            
-            # Search vector store
-            if text_embedding is not None:
-                raw_results = self.vector_store.search_text(
-                    query_embedding=text_embedding,
-                    k=request.limit,
-                    filters=request.filters,
-                    threshold=0.1  # Default similarity threshold
-                )
+            # Generate text embedding for the query
+            text_embedding = self.embedding_service.generate_text_embedding(request.query)
+            if text_embedding is None:
+                logger.warning("Failed to generate text embedding for query")
+                # Fallback to metadata-only search
+                results = self._metadata_search(request)
+            else:
+                # Perform comprehensive search using text embedding against all embedding types
+                raw_results = self._search_comprehensive(text_embedding, request)
+                
                 # Convert to schema format
                 results = [
                     SearchResult(
@@ -75,9 +66,6 @@ class InfluencerSearchEngine:
                     )
                     for result in raw_results
                 ]
-            else:
-                # Fallback to metadata-only search
-                results = self._metadata_search(request)
             
             # Post-process and rank results
             ranked_results = self._rank_results(results, request)
@@ -127,7 +115,7 @@ class InfluencerSearchEngine:
         max_followers: Optional[int] = None
     ) -> List[SearchResult]:
         """
-        Simplified text search interface.
+        Simplified text search interface that leverages bio, profile image, and content image embeddings.
         
         Args:
             query: Search query text
@@ -400,6 +388,64 @@ class InfluencerSearchEngine:
         
         return suggestions[:5]  # Return top 5 suggestions
 
+    def _search_comprehensive(self, text_embedding: np.ndarray, request: SearchRequest) -> List[VectorSearchResult]:
+        """
+        Search using text embedding against bio, profile image, and content image embeddings
+        with intelligent weighting to provide the best matches.
+        
+        Args:
+            text_embedding: Text embedding of the search query
+            request: Search request with parameters
+            
+        Returns:
+            List of search results with combined scores
+        """
+        
+        all_scores = {}
+
+        # 1. Get results from all three embedding types
+        text_results = self.vector_store.search_text(text_embedding, k=request.limit * 3, filters=request.filters)
+        profile_results = self.vector_store.search_profile_image(text_embedding, k=request.limit * 3, filters=request.filters)
+        content_results = self.vector_store.search_content_image(text_embedding, k=request.limit * 3, filters=request.filters)
+
+        # 2. Populate the scores dictionary
+        for result in text_results:
+            if result.influencer_id not in all_scores:
+                all_scores[result.influencer_id] = {'text_score': 0.0, 'profile_score': 0.0, 'content_score': 0.0, 'data': result}
+            all_scores[result.influencer_id]['text_score'] = result.score
+
+        for result in profile_results:
+            if result.influencer_id not in all_scores:
+                all_scores[result.influencer_id] = {'text_score': 0.0, 'profile_score': 0.0, 'content_score': 0.0, 'data': result}
+            all_scores[result.influencer_id]['profile_score'] = result.score
+
+        for result in content_results:
+            if result.influencer_id not in all_scores:
+                all_scores[result.influencer_id] = {'text_score': 0.0, 'profile_score': 0.0, 'content_score': 0.0, 'data': result}
+            all_scores[result.influencer_id]['content_score'] = result.score
+    
+        # 3. Calculate combined scores and create final list
+        combined_results = []
+        for influencer_id, scores in all_scores.items():
+            combined_score = (
+                scores['text_score'] * 0.4 +
+                scores['profile_score'] * 0.3 +
+                scores['content_score'] * 0.3
+            )
+        
+            result = scores['data']
+            result.score = combined_score
+            result.metadata = result.metadata or {}
+            result.metadata.update({
+                'text_score': scores['text_score'],
+                'profile_score': scores['profile_score'],
+                'content_score': scores['content_score'],
+            })
+            combined_results.append(result)
+
+        # 4. Sort and return the final results
+        combined_results.sort(key=lambda x: x.score, reverse=True)
+        return combined_results[:request.limit]
 
 # Global search engine instance
 search_engine = InfluencerSearchEngine()
@@ -434,7 +480,7 @@ def main():
     if search_engine.vector_store.get_stats()['total_influencers'] == 0:
         print("Loading search index...")
         if not search_engine.vector_store.load():
-            print("❌ Failed to load search index. Run: python -m app.build_index first")
+            print("❌ Failed to load search index. Data may not be initialized.")
             return 1
     
     # Perform search

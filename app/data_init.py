@@ -42,7 +42,8 @@ class DataInitializer:
             index_files = [
                 self.vector_store_path / "metadata.json",
                 self.vector_store_path / "text_index.faiss",
-                self.vector_store_path / "image_index.faiss"
+                self.vector_store_path / "profile_index.faiss",
+                self.vector_store_path / "content_index.faiss"
             ]
             return any(f.exists() for f in index_files)
         except Exception:
